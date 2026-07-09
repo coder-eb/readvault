@@ -19,6 +19,7 @@ python scripts/pull_data.py    # pull data/ from HuggingFace
 | `data/books.jsonl` | book_id -> title, authors, isbn, num_pages, avg_rating, genres, publication_info |
 | `data/shelf_entries.jsonl` | review_id -> book_id, shelf, date_added, date_read |
 | `data/reading_timeline.jsonl` | review_id, date, event (raw progress events) |
+| `data/reviews.jsonl` | review_id -> book_id, rating (1-5), rating_text, review_text |
 
 ## Common commands
 ```bash

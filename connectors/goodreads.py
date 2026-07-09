@@ -215,17 +215,7 @@ def _date_from_str(s: str) -> date:
     return datetime.strptime(s, "%B %d, %Y").date()
 
 
-def get_reading_timeline(page, review_id: str):
-    """Return [(date, event_text), ...] from a review page's reading timeline.
-
-    `page` is a Playwright Page from a browser context seeded with session
-    cookies (see load_browser_context()) -- review/show is behind the same
-    authenticated WAF-JS-challenge wall as review/list. Pass the same `page`
-    across calls (one per review) to avoid opening/closing a page each time.
-    """
-    page.goto(f"https://www.goodreads.com/review/show/{review_id}", timeout=30000)
-    page.wait_for_load_state("networkidle", timeout=20000)
-    soup = BeautifulSoup(page.content(), "html.parser")
+def _parse_timeline_events(soup: BeautifulSoup):
     timeline = soup.select_one(".readingTimeline")
     if not timeline:
         return []
@@ -247,6 +237,46 @@ def get_reading_timeline(page, review_id: str):
         if desc:
             events.append((d, desc))
     return events
+
+
+def get_review_page_data(page, review_id: str) -> dict:
+    """Return {events, rating, rating_text, review_text} from a review page.
+
+    `page` is a Playwright Page from a browser context seeded with session
+    cookies (see load_browser_context()) -- review/show is behind the same
+    authenticated WAF-JS-challenge wall as review/list. Pass the same `page`
+    across calls (one per review) to avoid opening/closing a page each time.
+
+    - `events`: [(date, event_text), ...] from the reading timeline.
+    - `rating`: 1-5 star rating as an int, or None if unrated.
+    - `rating_text`: Goodreads' label for the rating (e.g. "it was ok"), or None.
+    - `review_text`: the written review body, or None if there isn't one.
+    """
+    page.goto(f"https://www.goodreads.com/review/show/{review_id}", timeout=30000)
+    page.wait_for_load_state("networkidle", timeout=20000)
+    soup = BeautifulSoup(page.content(), "html.parser")
+
+    events = _parse_timeline_events(soup)
+
+    rating = None
+    rating_text = None
+    stars_el = soup.select_one(".staticStars")
+    if stars_el:
+        rating_text = stars_el.get("title") or None
+        rating = len(stars_el.select(".staticStar.p10"))
+
+    review_text = None
+    review_el = soup.select_one(".reviewText")
+    if review_el:
+        t = review_el.get_text("\n", strip=True)
+        review_text = t or None
+
+    return {
+        "events": events,
+        "rating": rating,
+        "rating_text": rating_text,
+        "review_text": review_text,
+    }
 
 
 def get_book_details(session: requests.Session, book_url: str) -> dict:
