@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import yaml
+from playwright.sync_api import sync_playwright
 
 from connectors import goodreads
 from processors.books import load_books_cache, read_jsonl, write_jsonl
@@ -56,6 +57,7 @@ def main():
         print("ERROR: set goodreads.user_id and goodreads.cookies_db in config/settings.yaml")
         sys.exit(1)
 
+    # Public endpoints (RSS, book pages) -- plain requests, no WAF challenge.
     session = goodreads.load_session(cookies_db)
 
     books_path = DATA_DIR / "books.jsonl"
@@ -68,46 +70,60 @@ def main():
     # dedupe timeline by (review_id, date, event) since re-runs re-fetch it
     timeline_seen = {(t["review_id"], t["date"], t["event"]) for t in all_timeline}
 
-    for shelf in shelves:
-        print(f"\n== {shelf} ==")
-        rss_items = {it["title"]: it for it in goodreads.get_shelf_rss(user_id, shelf)}
-        reviews = goodreads.get_shelf_reviews(session, user_id, shelf)
-        print(f"  {len(reviews)} entries")
+    # Authenticated endpoints (shelf table, reading timeline) -- these sit
+    # behind Goodreads' AWS WAF JS challenge, so a real browser is required.
+    with sync_playwright() as p:
+        browser, context = goodreads.load_browser_context(p, cookies_db)
+        timeline_page = context.new_page()
 
-        for r in reviews:
-            rss = rss_items.get(r["title"], {})
-            all_entries[r["review_id"]] = {
-                "review_id": r["review_id"],
-                "book_id": r["book_id"],
-                "title": r["title"],
-                "book_url": r["book_url"],
-                "shelf": shelf,
-                "date_added": rss.get("date_added"),
-                "date_read": rss.get("read_at"),
-            }
+        for shelf in shelves:
+            print(f"\n== {shelf} ==")
+            rss_items = {it["title"]: it for it in goodreads.get_shelf_rss(user_id, shelf)}
+            reviews = goodreads.get_shelf_reviews(context, user_id, shelf)
+            print(f"  {len(reviews)} entries")
 
-            # Reading timeline (progress events)
-            events = goodreads.get_reading_timeline(session, r["review_id"])
-            for d, desc in events:
-                key = (r["review_id"], str(d), desc)
-                if key not in timeline_seen:
-                    timeline_seen.add(key)
-                    all_timeline.append({"review_id": r["review_id"], "date": str(d), "event": desc})
-            time.sleep(goodreads.REQUEST_DELAY)
+            for r in reviews:
+                rss = rss_items.get(r["title"], {})
+                all_entries[r["review_id"]] = {
+                    "review_id": r["review_id"],
+                    "book_id": r["book_id"],
+                    "title": r["title"],
+                    "book_url": r["book_url"],
+                    "shelf": shelf,
+                    "date_added": rss.get("date_added"),
+                    "date_read": rss.get("read_at"),
+                }
 
-            # Book metadata (cached by book_id)
-            if r["book_id"] and r["book_url"] and (args.refresh_books or r["book_id"] not in books_cache):
+                # Reading timeline (progress events)
                 try:
-                    details = goodreads.get_book_details(session, r["book_url"])
-                    books_cache[r["book_id"]] = details
-                    print(f"    fetched book metadata: {details.get('title')} ({details.get('num_pages')} pages)")
+                    events = goodreads.get_reading_timeline(timeline_page, r["review_id"])
                 except Exception as e:
-                    print(f"    WARN: failed to fetch book details for {r['title']}: {e}")
+                    print(f"    WARN: failed to fetch reading timeline for {r['title']}: {e}")
+                    events = []
+                for d, desc in events:
+                    key = (r["review_id"], str(d), desc)
+                    if key not in timeline_seen:
+                        timeline_seen.add(key)
+                        all_timeline.append({"review_id": r["review_id"], "date": str(d), "event": desc})
                 time.sleep(goodreads.REQUEST_DELAY)
 
-    write_jsonl(books_path, list(books_cache.values()))
-    write_jsonl(entries_path, list(all_entries.values()))
-    write_jsonl(timeline_path, all_timeline)
+                # Book metadata (cached by book_id) -- public page, plain requests
+                if r["book_id"] and r["book_url"] and (args.refresh_books or r["book_id"] not in books_cache):
+                    try:
+                        details = goodreads.get_book_details(session, r["book_url"])
+                        books_cache[r["book_id"]] = details
+                        print(f"    fetched book metadata: {details.get('title')} ({details.get('num_pages')} pages)")
+                    except Exception as e:
+                        print(f"    WARN: failed to fetch book details for {r['title']}: {e}")
+                    time.sleep(goodreads.REQUEST_DELAY)
+
+            # Save after each shelf so a crash partway through a long run
+            # (network hiccup, WAF hiccup) doesn't lose everything fetched so far.
+            write_jsonl(books_path, list(books_cache.values()))
+            write_jsonl(entries_path, list(all_entries.values()))
+            write_jsonl(timeline_path, all_timeline)
+
+        browser.close()
 
     print(f"\nSaved: {len(books_cache)} books, {len(all_entries)} shelf entries, {len(all_timeline)} timeline events")
 

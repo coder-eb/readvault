@@ -60,6 +60,16 @@ speed, cache expensive per-item fetches (book metadata) by id.
   file. If auth starts failing, check the cookie DB path is still current
   (browser profile changes, reinstalls) rather than assuming Goodreads changed
   its markup.
+- Goodreads' authenticated pages (`review/list`, `review/show`) sit behind an
+  AWS WAF JS challenge — a plain `requests` session gets a 202 with an empty
+  body (`x-amzn-waf-action: challenge`) no matter how fresh the cookies are.
+  `connectors/goodreads.py` handles this with `load_browser_context()`, which
+  drives a real (Playwright/Chromium) browser seeded with the same session
+  cookies; only that path can pass the challenge. Public endpoints (RSS shelf
+  feed, book pages) are NOT behind this wall and still use plain `requests`
+  via `load_session()` — don't route those through Playwright, it's
+  unnecessary overhead. Needs `playwright install chromium` once per machine
+  (see `requirements.txt`).
 - Book detail scraping depends on Goodreads' embedded schema.org JSON-LD
   block (`numberOfPages`, `isbn`, `author`, `aggregateRating`) with a
   `data-testid="pagesFormat"` fallback. If `ingest_goodreads.py` stops finding
