@@ -1,0 +1,23 @@
+# Secrets
+.env
+
+# Data (synced via HuggingFace, not git)
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/

@@ -1,0 +1,14 @@
+goodreads:
+  user_id: "142402623-ebran-bright"
+  # Cookies read live from this browser's local cookie store -- never written
+  # to disk elsewhere. Needed because review/list (shelf tables) and
+  # review/show (reading timelines) aren't public. Update this path if you
+  # switch browsers.
+  cookies_db: "/Users/ebran/Library/Application Support/zen/Profiles/0nf4zqul.Default (alpha)/cookies.sqlite"
+  shelves:
+    - read
+    - currently-reading
+    - to-read
+    - did-not-finish
+
+hf_dataset_repo: "data-eb/readvault"
