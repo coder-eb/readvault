@@ -79,14 +79,14 @@ def main():
     currently_reading_rss = {it["title"]: it for it in goodreads.get_shelf_rss(user_id, "currently-reading")}
     print(f"currently-reading: {len(currently_reading_rss)} books (full resync)")
 
-    # 2. Read: only books finished after the cutoff.
+    # 2. Read: only books finished on/after the cutoff.
     read_rss = goodreads.get_shelf_rss(user_id, "read")
-    newly_read = {it["title"]: it for it in read_rss if it["read_at"] and it["read_at"] > cutoff}
+    newly_read = {it["title"]: it for it in read_rss if it["read_at"] and it["read_at"] >= cutoff}
     print(f"read: {len(newly_read)} newly finished since {cutoff}")
 
-    # 3. Did-not-finish: only books dropped after the cutoff.
+    # 3. Did-not-finish: only books dropped on/after the cutoff.
     dnf_rss = goodreads.get_shelf_rss(user_id, "did-not-finish")
-    newly_dnf = {it["title"]: it for it in dnf_rss if it["date_added"] and it["date_added"] > cutoff}
+    newly_dnf = {it["title"]: it for it in dnf_rss if it["date_added"] and it["date_added"] >= cutoff}
     print(f"did-not-finish: {len(newly_dnf)} newly dropped since {cutoff}")
 
     plan = [
