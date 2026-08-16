@@ -26,7 +26,7 @@ import yaml
 from playwright.sync_api import sync_playwright
 
 from connectors import goodreads
-from processors.books import read_jsonl, write_jsonl
+from processors.books import load_books_cache, read_jsonl, write_jsonl
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 STATE_PATH = DATA_DIR / ".cache" / "last_resync.json"
@@ -64,10 +64,12 @@ def main():
     cutoff = load_last_resync()
     print(f"Resyncing changes since {cutoff}\n")
 
+    books_path = DATA_DIR / "books.jsonl"
     entries_path = DATA_DIR / "shelf_entries.jsonl"
     timeline_path = DATA_DIR / "reading_timeline.jsonl"
     reviews_path = DATA_DIR / "reviews.jsonl"
 
+    books_cache = load_books_cache(books_path)
     all_entries = {e["review_id"]: e for e in read_jsonl(entries_path)}
     all_timeline = read_jsonl(timeline_path)
     timeline_seen = {(t["review_id"], t["date"], t["event"]) for t in all_timeline}
@@ -101,6 +103,7 @@ def main():
     with sync_playwright() as p:
         browser, context = goodreads.load_browser_context(p, cookies_db)
         timeline_page = context.new_page()
+        book_page = context.new_page()
 
         targets = {}  # review_id -> {shelf, title, rss}
         for shelf, rss_by_title, title_filter in plan:
@@ -155,14 +158,27 @@ def main():
             print(f"  {new_events} new timeline events", flush=True)
             time.sleep(goodreads.REQUEST_DELAY)
 
+            # Book metadata (cached by book_id) -- covers books newly seen on
+            # this shelf (e.g. just finished) that ingest_goodreads.py hasn't
+            # fetched yet.
+            if r["book_id"] and r["book_url"] and r["book_id"] not in books_cache:
+                try:
+                    details = goodreads.get_book_details(book_page, r["book_url"])
+                    books_cache[r["book_id"]] = details
+                    print(f"  fetched book metadata: {details.get('title')} ({details.get('num_pages')} pages)", flush=True)
+                except Exception as e:
+                    print(f"  WARN: failed to fetch book details: {e}", flush=True)
+                time.sleep(goodreads.REQUEST_DELAY)
+
         browser.close()
 
+    write_jsonl(books_path, list(books_cache.values()))
     write_jsonl(entries_path, list(all_entries.values()))
     write_jsonl(timeline_path, all_timeline)
     write_jsonl(reviews_path, list(all_reviews.values()))
     save_last_resync()
 
-    print(f"\nSaved: {len(targets)} books refreshed, {len(all_timeline)} total timeline events.")
+    print(f"\nSaved: {len(targets)} books refreshed, {len(books_cache)} books cached, {len(all_timeline)} total timeline events.")
 
 
 if __name__ == "__main__":

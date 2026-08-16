@@ -66,11 +66,15 @@ speed, cache expensive per-item fetches (book metadata) by id.
   body (`x-amzn-waf-action: challenge`) no matter how fresh the cookies are.
   `connectors/goodreads.py` handles this with `load_browser_context()`, which
   drives a real (Playwright/Chromium) browser seeded with the same session
-  cookies; only that path can pass the challenge. Public endpoints (RSS shelf
-  feed, book pages) are NOT behind this wall and still use plain `requests`
-  via `load_session()` — don't route those through Playwright, it's
-  unnecessary overhead. Needs `playwright install chromium` once per machine
-  (see `requirements.txt`).
+  cookies; only that path can pass the challenge. Needs `playwright install
+  chromium` once per machine (see `requirements.txt`).
+  As of a later mid-2026 check, book pages (`get_book_details`) — even though
+  publicly viewable — are ALSO behind the WAF wall now (confirmed with a
+  fresh, cookie-less `requests` session hitting the same 202 challenge), so
+  they go through the same Playwright browser context too. Only the RSS shelf
+  feed (`review/list_rss`) is confirmed still reachable via plain `requests`.
+  If a future session finds `requests` works again on book pages, that means
+  Goodreads loosened the WAF rule — not a bug in this code.
 - Book detail scraping depends on Goodreads' embedded schema.org JSON-LD
   block (`numberOfPages`, `isbn`, `author`, `aggregateRating`) with a
   `data-testid="pagesFormat"` fallback. If `ingest_goodreads.py` stops finding

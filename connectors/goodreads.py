@@ -13,15 +13,21 @@ the site the same way a browser does:
   seeded with session cookies pulled live from a local browser cookie store
   (never written to disk -- see `load_browser_context()`).
 - Public RSS shelf feeds (`review/list_rss`) are used as a fast, unauthenticated
-  way to get read_at / date_added without paginating the HTML table -- these
-  are NOT behind the WAF challenge, so plain `requests` still works for them.
+  way to get read_at / date_added without paginating the HTML table -- this is
+  the one endpoint confirmed still reachable via plain `requests` (as of
+  mid-2026).
 - Per-review "reading timeline" (shelved / started / % progress / finished
-  events) comes from the review page, which is also authenticated and thus
-  also needs the Playwright browser context.
+  events) comes from the review page, which is authenticated and needs the
+  Playwright browser context.
 - Book metadata (page count, author, ISBN, rating, genres) comes from the
-  public book page, which embeds a schema.org JSON-LD block plus a couple of
-  `data-testid` attributes for the fields not in the JSON-LD. Public, so
-  plain `requests` works here too.
+  book page, which embeds a schema.org JSON-LD block plus a couple of
+  `data-testid` attributes for the fields not in the JSON-LD. Even though this
+  page is publicly viewable, as of mid-2026 it's ALSO behind the WAF challenge
+  (confirmed: a fresh, cookie-less `requests` session gets the same 202
+  challenge response) -- so this also goes through the Playwright browser
+  context now, not `requests`. If a future session finds `requests` works
+  again here, that's a sign Goodreads loosened the WAF rule, not a bug in this
+  code.
 
 Nothing in this module holds Goodreads credentials in code -- the cookie DB
 path and user id live in config/settings.yaml.
@@ -84,26 +90,6 @@ def load_browser_context(playwright, cookies_db: str, headless: bool = True):
     context = browser.new_context(user_agent=HEADERS["User-Agent"])
     context.add_cookies(_load_goodreads_cookies(cookies_db))
     return browser, context
-
-
-def load_session(cookies_db: str) -> requests.Session:
-    """Build a requests.Session for PUBLIC Goodreads endpoints (RSS, book pages).
-
-    Do not use this for authenticated pages (review/list, review/show) -- those
-    are behind a WAF JS challenge that requests can't pass. Use
-    load_browser_context() instead.
-    """
-    con = sqlite3.connect(f"file:{cookies_db}?immutable=1", uri=True)
-    rows = con.execute(
-        "SELECT name, value, host, path FROM moz_cookies WHERE host LIKE '%goodreads%'"
-    ).fetchall()
-    con.close()
-
-    session = requests.Session()
-    for name, value, host, path in rows:
-        session.cookies.set(name, value, domain=host, path=path)
-    session.headers.update(HEADERS)
-    return session
 
 
 def _parse_rss_date(s: str):
@@ -279,16 +265,22 @@ def get_review_page_data(page, review_id: str) -> dict:
     }
 
 
-def get_book_details(session: requests.Session, book_url: str) -> dict:
-    """Scrape a public book page for metadata: pages, author, isbn, rating, genres.
+def get_book_details(page, book_url: str) -> dict:
+    """Scrape a book page for metadata: pages, author, isbn, rating, genres.
+
+    `page` is a Playwright Page from a browser context seeded with session
+    cookies (see load_browser_context()) -- as of mid-2026, book pages are
+    also behind the AWS WAF JS challenge (confirmed: even a fresh, cookie-less
+    `requests` session gets a 202 challenge response), so `requests` no longer
+    works here despite these being publicly-viewable pages.
 
     Primary source is the schema.org JSON-LD block Goodreads embeds in every
     book page; falls back to `data-testid` attributes for fields JSON-LD
     sometimes omits (e.g. page count on editions without an ISBN).
     """
-    resp = session.get(book_url)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+    page.goto(book_url, timeout=30000)
+    page.wait_for_load_state("networkidle", timeout=20000)
+    soup = BeautifulSoup(page.content(), "html.parser")
 
     ld = {}
     script = soup.find("script", {"type": "application/ld+json"})

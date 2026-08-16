@@ -9,9 +9,14 @@ Usage:
 What it does, per configured shelf (config/settings.yaml: goodreads.shelves):
   1. Pull the public RSS feed for read_at / date_added (fast, no auth).
   2. Pull the authenticated HTML shelf table for review_id + book_url per title.
-  3. For each review: fetch its reading-timeline events (start/%/finish dates).
+  3. For each review: fetch its reading-timeline events, rating, and review text.
   4. For each book_id not already cached (or if --refresh-books): fetch the
      book page for page count, author, isbn, rating, genres.
+
+All of steps 2-4 go through a Playwright browser context (see
+connectors/goodreads.py) -- Goodreads' AWS WAF JS challenge blocks a plain
+`requests` session on both the authenticated pages and (as of mid-2026) the
+book pages too, even though the latter are publicly viewable.
 
 Writes:
   data/books.jsonl            book_id -> metadata (cache, append/overwrite by book_id)
@@ -59,9 +64,6 @@ def main():
         print("ERROR: set goodreads.user_id and goodreads.cookies_db in config/settings.yaml")
         sys.exit(1)
 
-    # Public endpoints (RSS, book pages) -- plain requests, no WAF challenge.
-    session = goodreads.load_session(cookies_db)
-
     books_path = DATA_DIR / "books.jsonl"
     entries_path = DATA_DIR / "shelf_entries.jsonl"
     timeline_path = DATA_DIR / "reading_timeline.jsonl"
@@ -79,6 +81,7 @@ def main():
     with sync_playwright() as p:
         browser, context = goodreads.load_browser_context(p, cookies_db)
         timeline_page = context.new_page()
+        book_page = context.new_page()
 
         for shelf in shelves:
             print(f"\n== {shelf} ==", flush=True)
@@ -124,11 +127,11 @@ def main():
                 }
                 time.sleep(goodreads.REQUEST_DELAY)
 
-                # Book metadata (cached by book_id) -- public page, plain requests
+                # Book metadata (cached by book_id) -- also behind the WAF wall now
                 fetched_book = False
                 if r["book_id"] and r["book_url"] and (args.refresh_books or r["book_id"] not in books_cache):
                     try:
-                        details = goodreads.get_book_details(session, r["book_url"])
+                        details = goodreads.get_book_details(book_page, r["book_url"])
                         books_cache[r["book_id"]] = details
                         fetched_book = True
                         print(f"    fetched book metadata: {details.get('title')} ({details.get('num_pages')} pages)", flush=True)
