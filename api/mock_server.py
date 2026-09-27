@@ -203,6 +203,7 @@ MCP_TOOLS = [
 @app.post("/mcp")
 async def mcp_handler(request: Request):
     body = await request.json()
+    print(f"MCP << {json.dumps(body)}")  # log every request so we can see real tool names
     method = body.get("method")
     req_id = body.get("id")
 
@@ -221,13 +222,17 @@ async def mcp_handler(request: Request):
 
     if method == "tools/call":
         params    = body.get("params", {})
-        name      = params.get("name")
+        name      = params.get("name", "").lower().strip()
         arguments = params.get("arguments", {})
         result    = None
-        if name == "get_taste":        result = _build_taste()
-        elif name == "get_recent":     result = _build_recent(arguments.get("limit", 10))
-        elif name == "get_current":    result = _build_current()
-        elif name == "get_want_to_read": result = _build_want_to_read()
+        if name in ("get_taste", "taste"):
+            result = _build_taste()
+        elif name in ("get_recent", "recent"):
+            result = _build_recent(arguments.get("limit", 10))
+        elif name in ("get_current", "current"):
+            result = _build_current()
+        elif name in ("get_want_to_read", "want_to_read", "to_read", "want-to-read", "to-read"):
+            result = _build_want_to_read()
 
         if result is None:
             return JSONResponse({"jsonrpc": "2.0", "id": req_id,
