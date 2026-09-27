@@ -103,7 +103,7 @@ def _build_recent(limit=10):
             "pages":     book.get("num_pages"),
             "genres":    book.get("genres", [])[:4],
         }
-        text = review.get("review_text", "").strip()
+        text = (review.get("review_text") or "").strip()
         if text:
             rec["review"] = text[:300]
         out.append(rec)
