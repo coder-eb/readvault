@@ -1,14 +1,12 @@
 """
-Mock ReadVault API — real 2026 data, hardcoded.
-Replace with live JSONL reads once plugin integration is confirmed working.
+ReadVault API — real 2026 data, hardcoded mock.
+Exposes a stateless MCP endpoint (streamable-http) plus plain REST routes.
 
-Run:  uvicorn api.mock_server:app --host 0.0.0.0 --port 8000
+Run:  uvicorn mock_server:app --host 0.0.0.0 --port 8000
 """
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from fastapi_mcp import FastApiMCP
-
 import os
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 PUBLIC_URL = os.getenv("PUBLIC_URL", "https://readvault-5zo3.onrender.com")
 
@@ -18,45 +16,7 @@ app = FastAPI(
     version="0.1.0",
 )
 
-
-# ── plugin manifest ───────────────────────────────────────────────────────────
-
-@app.get("/.well-known/ai-plugin.json", include_in_schema=False)
-def plugin_manifest():
-    return JSONResponse({
-        "schema_version": "v1",
-        "name_for_human": "ReadVault",
-        "name_for_model": "readvault",
-        "description_for_human": "Access Ebran's personal reading data — current reads, recent finishes, taste profile, and to-read list.",
-        "description_for_model": (
-            "Use this plugin to access Ebran's personal reading data from Goodreads. "
-            "Always call /taste before making recommendations to understand his preferences. "
-            "Call /recent to see what he has enjoyed lately with his personal ratings (he rates tougher than the crowd — a 4 is a strong endorsement). "
-            "Call /current to know what he is mid-way through. "
-            "Call /want-to-read for his existing queue. "
-            "Never recommend a book he has already read, is currently reading, or has already queued."
-        ),
-        "auth": {
-            "type": "service_http",
-            "authorization_type": "bearer",
-            "verification_token": API_KEY,
-        },
-        "api": {
-            "type": "openapi",
-            "url": f"{PUBLIC_URL}/openapi.json",
-        },
-        "logo_url": f"{PUBLIC_URL}/logo.png",
-        "contact_email": "ebranbright@gmail.com",
-        "legal_info_url": f"{PUBLIC_URL}/legal",
-    })
-
-
-@app.get("/legal", include_in_schema=False)
-def legal():
-    return {"info": "Personal tool. Not for public use."}
-
-
-# ── data (real 2026 reads) ────────────────────────────────────────────────────
+# ── data ──────────────────────────────────────────────────────────────────────
 
 CURRENT = [
     {"title": "East of Eden", "author": "John Steinbeck", "shelf": "currently-reading", "date_started": "2026-07-04", "pages": 602},
@@ -94,11 +54,9 @@ TASTE = {
     "top_genres": ["fantasy", "classics", "historical fiction", "science fiction", "horror", "theology/devotional"],
     "favourite_authors": ["Fonda Lee", "Alexandre Dumas", "Brandon Sanderson", "Andy Weir", "C.S. Lewis"],
     "avg_rating_given": 3.5,
-    "goodreads_crowd_avg_for_same_books": 4.19,
     "note_on_ratings": "Ebran rates tougher than the crowd — a 4 from him is a strong endorsement",
     "books_finished_2026": 32,
     "pages_read_2026": 12286,
-    "avg_pages_per_book": 384.6,
     "reading_pace": "~1.3 books/week, projected 60+ books for the full year",
     "reading_style": "frequently leaves a book 'open' for weeks then blitzes through in a few sessions; binge-reads series once hooked",
     "prefers": [
@@ -114,38 +72,128 @@ TASTE = {
         "over-hyped books (skeptical and will call it out)",
         "authors who spoon-feed the reader or over-explain",
         "romance-heavy plots with constant yearning",
-        "minimal prose styles with no world-building",
         "books that feel flat without twists",
     ],
-    "faith_lens": "Ebran has a strong Christian faith that shows up in his reading — he reads theology/devotional books alongside fiction and often reflects on eternal themes in his reviews",
-    "rated_1_star": ["All My Cats — Bohumil Hrabal"],
-    "rated_2_star": ["Tokyo Express", "The Decagon House Murders", "Six of Crows", "The Memory Police", "Foster", "A Short Stay in Hell"],
+    "faith_lens": "Strong Christian faith — reflects on eternal themes, reads theology/devotional books alongside fiction",
     "rated_5_star": ["Pride and Prejudice", "Project Hail Mary", "The Screwtape Letters", "The Count of Monte Cristo", "Jade City"],
+    "rated_1_or_2_star": ["All My Cats", "Tokyo Express", "The Decagon House Murders", "Six of Crows", "The Memory Police"],
 }
 
+# ── MCP tools registry ────────────────────────────────────────────────────────
 
-# ── endpoints ─────────────────────────────────────────────────────────────────
+MCP_TOOLS = [
+    {
+        "name": "get_current",
+        "description": "Books Ebran is currently reading (in progress or paused).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_recent",
+        "description": "Recently finished books with Ebran's personal ratings and mini-reviews. Call this before recommending books.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Number of books to return (default 10)"}
+            },
+        },
+    },
+    {
+        "name": "get_want_to_read",
+        "description": "Books on Ebran's to-read or paused shelf. Never recommend these — he already knows about them.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "get_taste",
+        "description": "Ebran's reading taste profile: genres, favourite authors, rating habits, preferences and dislikes. Always call this first.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+]
 
-@app.get("/current", summary="Books currently being read")
+
+def call_tool(name: str, arguments: dict):
+    if name == "get_current":
+        return CURRENT
+    if name == "get_recent":
+        limit = arguments.get("limit", 10)
+        return RECENT[:limit]
+    if name == "get_want_to_read":
+        return WANT_TO_READ
+    if name == "get_taste":
+        return TASTE
+    return None
+
+
+# ── stateless MCP endpoint (streamable-http) ──────────────────────────────────
+
+@app.post("/mcp")
+async def mcp_handler(request: Request):
+    import json
+    body = await request.json()
+
+    method = body.get("method")
+    req_id = body.get("id")
+
+    # notification — no response needed
+    if req_id is None:
+        return JSONResponse(status_code=202, content={})
+
+    if method == "initialize":
+        return JSONResponse({
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "readvault", "version": "1.0.0"},
+            }
+        })
+
+    if method == "tools/list":
+        return JSONResponse({
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"tools": MCP_TOOLS}
+        })
+
+    if method == "tools/call":
+        params = body.get("params", {})
+        name = params.get("name")
+        arguments = params.get("arguments", {})
+        result = call_tool(name, arguments)
+        if result is None:
+            return JSONResponse({
+                "jsonrpc": "2.0", "id": req_id,
+                "error": {"code": -32601, "message": f"Unknown tool: {name}"}
+            })
+        return JSONResponse({
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {
+                "content": [{"type": "text", "text": json.dumps(result, ensure_ascii=False)}]
+            }
+        })
+
+    return JSONResponse({
+        "jsonrpc": "2.0", "id": req_id,
+        "error": {"code": -32601, "message": f"Method not found: {method}"}
+    })
+
+
+# ── plain REST endpoints (kept for direct testing) ────────────────────────────
+
+@app.get("/current")
 def get_current():
     return CURRENT
 
-
-@app.get("/recent", summary="Recently finished books with ratings")
+@app.get("/recent")
 def get_recent(limit: int = 10):
     return RECENT[:limit]
 
-
-@app.get("/want-to-read", summary="To-read and paused shelf")
+@app.get("/want-to-read")
 def get_want_to_read():
     return WANT_TO_READ
 
-
-@app.get("/taste", summary="Derived taste profile — call this before making any recommendations")
+@app.get("/taste")
 def get_taste():
     return TASTE
 
-
-# ── MCP mount (exposes all routes above as MCP tools) ─────────────────────────
-mcp = FastApiMCP(app)
-mcp.mount_http()
+@app.get("/legal", include_in_schema=False)
+def legal():
+    return {"info": "Personal tool. Not for public use."}
