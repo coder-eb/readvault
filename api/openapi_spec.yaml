@@ -1,0 +1,157 @@
+openapi: 3.1.0
+info:
+  title: ReadVault
+  description: >
+    Ebran's personal reading data, scraped from his Goodreads account.
+    Use /taste first to understand his preferences, then /recent to see what he
+    has actually enjoyed lately, /current to know what he is mid-way through,
+    and /want-to-read for his existing queue. Always check all four before
+    making book recommendations so you do not suggest something he has already
+    read, is currently reading, or has already queued.
+  version: 0.1.0
+servers:
+  - url: https://freight-restored-dealer-pubmed.trycloudflare.com
+paths:
+  /current:
+    get:
+      summary: Books currently being read
+      operationId: getCurrent
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: List of in-progress books
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title: { type: string }
+                    author: { type: string }
+                    shelf: { type: string }
+                    date_started: { type: string }
+                    pages: { type: integer, nullable: true }
+              example:
+                - title: "East of Eden"
+                  author: "John Steinbeck"
+                  shelf: "currently-reading"
+                  date_started: "2026-07-04"
+                  pages: 602
+                - title: "The Iliad"
+                  author: "Homer"
+                  shelf: "currently-reading"
+                  date_started: "2026-06-11"
+                  pages: 683
+  /recent:
+    get:
+      summary: Recently finished books with ratings
+      operationId: getRecent
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 10 }
+          description: Number of books to return, most recent first
+      responses:
+        "200":
+          description: List of recently finished books
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title: { type: string }
+                    author: { type: string }
+                    rating: { type: integer, description: "1-5 stars, Ebran rates tougher than average — a 4 is a strong endorsement" }
+                    date_read: { type: string }
+                    pages: { type: integer }
+                    genres: { type: array, items: { type: string } }
+                    review: { type: string }
+              example:
+                - title: "Jade City"
+                  author: "Fonda Lee"
+                  rating: 5
+                  date_read: "2026-05-26"
+                  pages: 529
+                  genres: ["fantasy"]
+                  review: "Brilliant! Fast paced! No plot armors here. Really reminded me why I love reading books."
+                - title: "The Count of Monte Cristo"
+                  author: "Alexandre Dumas"
+                  rating: 5
+                  date_read: "2026-05-17"
+                  pages: 1276
+                  genres: ["classics", "historical fiction", "adventure"]
+                  review: "6 stars for me. Made me realize why I love longer books and find solace in them."
+  /want-to-read:
+    get:
+      summary: To-read and paused shelf
+      operationId: getWantToRead
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Books Ebran intends to read or resume
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    title: { type: string }
+                    author: { type: string }
+                    note: { type: string }
+              example:
+                - title: "Words of Radiance"
+                  author: "Brandon Sanderson"
+                  note: "sequel to The Way of Kings"
+                - title: "The Name of the Rose"
+                  author: "Umberto Eco"
+                  note: "paused — heavy sentences, will return when in the mindset"
+  /taste:
+    get:
+      summary: Derived taste profile — call this before making any recommendations
+      operationId: getTaste
+      security:
+        - ApiKeyAuth: []
+      responses:
+        "200":
+          description: Reading taste profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  top_genres: { type: array, items: { type: string } }
+                  favourite_authors: { type: array, items: { type: string } }
+                  avg_rating_given: { type: number }
+                  note_on_ratings: { type: string }
+                  books_finished_2026: { type: integer }
+                  reading_pace: { type: string }
+                  reading_style: { type: string }
+                  prefers: { type: array, items: { type: string } }
+                  tends_to_avoid: { type: array, items: { type: string } }
+                  faith_lens: { type: string }
+                  rated_5_star: { type: array, items: { type: string } }
+                  rated_1_star: { type: array, items: { type: string } }
+              example:
+                top_genres: ["fantasy", "classics", "historical fiction", "science fiction"]
+                favourite_authors: ["Fonda Lee", "Alexandre Dumas", "Brandon Sanderson", "Andy Weir", "C.S. Lewis"]
+                avg_rating_given: 3.5
+                note_on_ratings: "Ebran rates tougher than the crowd — a 4 from him is a strong endorsement"
+                reading_pace: "~1.3 books/week, projected 60+ books for the full year"
+                prefers: ["long immersive books", "found-family dynamics", "no plot armor", "redemption themes"]
+                tends_to_avoid: ["over-hyped books", "authors who spoon-feed the reader", "romance-heavy plots"]
+                faith_lens: "Strong Christian faith — reflects on eternal themes in reviews, reads theology alongside fiction"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
