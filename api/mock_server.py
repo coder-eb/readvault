@@ -4,28 +4,19 @@ Replace with live JSONL reads once plugin integration is confirmed working.
 
 Run:  uvicorn api.mock_server:app --host 0.0.0.0 --port 8000
 """
-from fastapi import FastAPI, Security, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from fastapi.security.api_key import APIKeyHeader
 from fastapi_mcp import FastApiMCP
 
 import os
 
-API_KEY = os.getenv("API_KEY", "readvault-mock-key")
 PUBLIC_URL = os.getenv("PUBLIC_URL", "https://readvault-5zo3.onrender.com")
-
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 app = FastAPI(
     title="ReadVault",
     description="Ebran's personal reading data — current reads, recent finishes, taste profile, and want-to-read list.",
     version="0.1.0",
 )
-
-
-def require_key(key: str = Security(api_key_header)):
-    if key != API_KEY:
-        raise HTTPException(status_code=403, detail="Invalid API key")
 
 
 # ── plugin manifest ───────────────────────────────────────────────────────────
@@ -136,22 +127,22 @@ TASTE = {
 # ── endpoints ─────────────────────────────────────────────────────────────────
 
 @app.get("/current", summary="Books currently being read")
-def get_current(_=Security(require_key)):
+def get_current():
     return CURRENT
 
 
 @app.get("/recent", summary="Recently finished books with ratings")
-def get_recent(limit: int = 10, _=Security(require_key)):
+def get_recent(limit: int = 10):
     return RECENT[:limit]
 
 
 @app.get("/want-to-read", summary="To-read and paused shelf")
-def get_want_to_read(_=Security(require_key)):
+def get_want_to_read():
     return WANT_TO_READ
 
 
 @app.get("/taste", summary="Derived taste profile — call this before making any recommendations")
-def get_taste(_=Security(require_key)):
+def get_taste():
     return TASTE
 
 

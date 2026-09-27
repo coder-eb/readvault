@@ -16,8 +16,6 @@ paths:
     get:
       summary: Books currently being read
       operationId: getCurrent
-      security:
-        - ApiKeyAuth: []
       responses:
         "200":
           description: List of in-progress books
@@ -48,8 +46,6 @@ paths:
     get:
       summary: Recently finished books with ratings
       operationId: getRecent
-      security:
-        - ApiKeyAuth: []
       parameters:
         - name: limit
           in: query
@@ -92,8 +88,6 @@ paths:
     get:
       summary: To-read and paused shelf
       operationId: getWantToRead
-      security:
-        - ApiKeyAuth: []
       responses:
         "200":
           description: Books Ebran intends to read or resume
@@ -118,8 +112,6 @@ paths:
     get:
       summary: Derived taste profile — call this before making any recommendations
       operationId: getTaste
-      security:
-        - ApiKeyAuth: []
       responses:
         "200":
           description: Reading taste profile
@@ -149,9 +141,3 @@ paths:
                 prefers: ["long immersive books", "found-family dynamics", "no plot armor", "redemption themes"]
                 tends_to_avoid: ["over-hyped books", "authors who spoon-feed the reader", "romance-heavy plots"]
                 faith_lens: "Strong Christian faith — reflects on eternal themes in reviews, reads theology alongside fiction"
-components:
-  securitySchemes:
-    ApiKeyAuth:
-      type: apiKey
-      in: header
-      name: X-API-Key
