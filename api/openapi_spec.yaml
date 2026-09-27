@@ -10,7 +10,7 @@ info:
     read, is currently reading, or has already queued.
   version: 0.1.0
 servers:
-  - url: https://freight-restored-dealer-pubmed.trycloudflare.com
+  - url: https://readvault-5zo3.onrender.com
 paths:
   /current:
     get:

@@ -12,7 +12,7 @@ from fastapi_mcp import FastApiMCP
 import os
 
 API_KEY = os.getenv("API_KEY", "readvault-mock-key")
-PUBLIC_URL = os.getenv("PUBLIC_URL", "https://freight-restored-dealer-pubmed.trycloudflare.com")
+PUBLIC_URL = os.getenv("PUBLIC_URL", "https://readvault-5zo3.onrender.com")
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
