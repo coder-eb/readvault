@@ -25,9 +25,26 @@ python scripts/pull_data.py    # pull data/ from HuggingFace
 ```bash
 python scripts/ingest_goodreads.py                # sync latest shelf/book data
 python scripts/ingest_goodreads.py --refresh-books # re-fetch book metadata (ratings/genres can drift)
+python scripts/resync_active.py                    # targeted resync: currently-reading + newly finished/dropped (state: data/.cache/last_resync.json)
+python scripts/reconcile_shelves.py [--dry-run]    # diff ALL shelves vs Goodreads: add new, move changed, remove deleted
 python scripts/push_data.py                        # push data/ to HuggingFace
 python scripts/stats.py --year 2026                # avg pages, genre breakdown, etc. (local only, no network)
 ```
+
+Run scripts with `.venv/bin/python` (system python lacks Playwright).
+`resync_active.py` is date-filtered and never checks shelf membership; follow it
+with `reconcile_shelves.py` to catch books that moved shelves, were deleted, or
+were added to read without a recent date.
+
+## IDs
+- `book_id` (Goodreads ID): primary key of `books.jsonl`; foreign key in
+  `shelf_entries`/`reviews`. Metadata cache key.
+- `review_id`: your row for a book; primary key of `shelf_entries`/`reviews`,
+  foreign key in `reading_timeline`. Changes if a book is removed and re-added
+  on Goodreads (old timeline is dropped with the old id).
+- `isbn`: plain field in `books.jsonl`, not a key (~25% of books have none).
+Goodreads' sidebar "All (N)" can be stale; the `#ALL#` listing is the real count
+and should equal the local entry count.
 
 ## Answering ad-hoc reading questions
 `processors/books.py` has `read_jsonl`, `load_books_cache`,
